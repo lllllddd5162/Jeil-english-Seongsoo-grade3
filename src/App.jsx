@@ -605,7 +605,7 @@ export default function App() {
 
   // 시험
   const [newTest, setNewTest] = useState({
-    title: '', source: '', difficulty: '중', description: '',
+    title: '', source: '', testDifficulty: '', difficulty: '중', description: '',
     date: new Date(Date.now() + 9*60*60*1000).toISOString().split('T')[0],
     scales: DEFAULT_GRADE_SCALES, testType: '중간 테스트', mcCount: '', saCount: ''
   });
@@ -814,7 +814,7 @@ export default function App() {
     if (userRole !== 'master' || !newTest.title.trim()) return;
     await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tests', 't' + Date.now()), { ...newTest });
     setNewTest({
-      title: '', source: '', difficulty: '중', description: '',
+      title: '', source: '', testDifficulty: '', difficulty: '중', description: '',
       date: new Date(Date.now() + 9*60*60*1000).toISOString().split('T')[0],
       scales: DEFAULT_GRADE_SCALES, testType: newTest.testType, mcCount: '', saCount: '', questions: []
     });
@@ -824,6 +824,7 @@ export default function App() {
     if (userRole !== 'master' || !selectedTest) return;
     await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tests', selectedTest.id), selectedTest, { merge: true });
     setIsTestEditMode(false);
+    setSelectedTest(null);
   };
 
   const saveEditItem = async () => {
@@ -1694,6 +1695,20 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {/* 난이도 */}
+                  <div className="mb-4">
+                    <p className="text-[10px] font-black text-slate-400 mb-2 uppercase">시험 난이도</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['최하','하','중하','중','중상','상','최상'].map(d=>(
+                        <button key={d} onClick={()=>setNewTest(p=>({...p,testDifficulty:d}))}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black border-2 transition ${newTest.testDifficulty===d?'border-transparent text-white shadow-sm':'border-slate-100 text-slate-400'}`}
+                          style={newTest.testDifficulty===d?{background:{'최하':'#3b82f6','하':'#0ea5e9','중하':'#14b8a6','중':'#64748b','중상':'#f59e0b','상':'#f97316','최상':'#ef4444'}[d]}:{}}>
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* 문항 설정 */}
                   <div className="mb-4">
                     <p className="text-[10px] font-black text-slate-400 mb-3 uppercase">문항 설정 (선택)</p>
@@ -1762,6 +1777,10 @@ export default function App() {
                                 <p className="leading-snug">{t.title}</p>
                                 <p className="text-[8px] text-orange-400 font-bold">{t.date}{t.maxScore ? ` · 만점 ${t.maxScore}점` : ''}</p>
                                 <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 mt-0.5 inline-block">AVG {stats.testAverages[t.id]}{t.maxScore ? ` / ${t.maxScore}` : ''}</span>
+                                {t.testDifficulty && (() => {
+                                  const dc = {'최하':'bg-blue-100 text-blue-600','하':'bg-sky-100 text-sky-600','중하':'bg-teal-100 text-teal-600','중':'bg-slate-100 text-slate-600','중상':'bg-amber-100 text-amber-600','상':'bg-orange-100 text-orange-600','최상':'bg-red-100 text-red-600'};
+                                  return <span className={`text-[8px] font-black px-1.5 py-0.5 rounded mt-0.5 ml-1 inline-block ${dc[t.testDifficulty]||'bg-slate-100 text-slate-500'}`}>{t.testDifficulty}</span>;
+                                })()}
                                 {userRole === 'master' && (
                                   <div className="flex justify-center gap-1 mt-1">
                                     <button onClick={()=>setSelectedTest({...t})} className="text-[8px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-400 hover:bg-blue-100 font-black transition-all">수정</button>
@@ -3324,6 +3343,18 @@ export default function App() {
                       {['중간 테스트','미니 테스트'].map(t=>(
                         <button key={t} onClick={()=>setSelectedTest(p=>({...p,testType:t}))}
                           className={`px-4 py-2 rounded-xl text-xs font-black border-2 transition ${selectedTest.testType===t?'bg-orange-500 border-orange-500 text-white':'border-slate-100 text-slate-400'}`}>{t}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">시험 난이도</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['최하','하','중하','중','중상','상','최상'].map(d=>(
+                        <button key={d} onClick={()=>setSelectedTest(p=>({...p,testDifficulty:d}))}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black border-2 transition ${selectedTest.testDifficulty===d?'border-transparent text-white shadow-sm':'border-slate-100 text-slate-400'}`}
+                          style={selectedTest.testDifficulty===d?{background:{'최하':'#3b82f6','하':'#0ea5e9','중하':'#14b8a6','중':'#64748b','중상':'#f59e0b','상':'#f97316','최상':'#ef4444'}[d]}:{}}>
+                          {d}
+                        </button>
                       ))}
                     </div>
                   </div>

@@ -1027,12 +1027,12 @@ export default function App() {
     return {
       assign, memo,
       studentTestAverages: students.reduce((acc, s) => {
-        const scs = mainTests.map(t => { const r=testScores[`${s.id}-${t.id}`]; return r?.absent ? null : r?.score; }).filter(v => v != null);
+        const scs = mainTests.map(t => { const r=testScores[`${s.id}-${t.id}`]; return r?.absent ? null : (r?.score != null ? parseFloat(r.score) : null); }).filter(v => v != null && !isNaN(v));
         acc[s.id] = scs.length ? (scs.reduce((a,b)=>a+b,0)/scs.length).toFixed(1) : "0.0";
         return acc;
       }, {}),
       testAverages: tests.reduce((acc, t) => {
-        const scs = students.map(s => { const r=testScores[`${s.id}-${t.id}`]; return r?.absent ? null : r?.score; }).filter(v => v != null);
+        const scs = students.map(s => { const r=testScores[`${s.id}-${t.id}`]; return r?.absent ? null : (r?.score != null ? parseFloat(r.score) : null); }).filter(v => v != null && !isNaN(v));
         acc[t.id] = scs.length ? (scs.reduce((a,b)=>a+b,0)/scs.length).toFixed(1) : "0.0";
         return acc;
       }, {})
@@ -1600,6 +1600,49 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {/* 문항 설정 */}
+                  <div className="mb-4">
+                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase">문항 설정 (선택)</p>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 mb-1.5">객관식 문항 수</p>
+                        <input type="number" min="0" value={newTest.mcCount||''} onChange={(e)=>{
+                          const n = parseInt(e.target.value)||0;
+                          const existing = (newTest.questions||[]).filter(q=>q.type==='객관식');
+                          const newQs = Array.from({length:n},(_,i)=>existing[i]||{type:'객관식',num:i+1,points:'',unit:'',difficulty:'중'});
+                          const others = (newTest.questions||[]).filter(q=>q.type!=='객관식');
+                          setNewTest({...newTest,mcCount:e.target.value,questions:[...newQs,...others]});
+                        }} placeholder="예: 20" className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-400 transition-all text-sm"/>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 mb-1.5">주관식 문항 수</p>
+                        <input type="number" min="0" value={newTest.saCount||''} onChange={(e)=>{
+                          const n = parseInt(e.target.value)||0;
+                          const mcQs = (newTest.questions||[]).filter(q=>q.type==='객관식');
+                          const existing = (newTest.questions||[]).filter(q=>q.type==='주관식');
+                          const newQs = Array.from({length:n},(_,i)=>existing[i]||{type:'주관식',num:mcQs.length+i+1,points:'',unit:'',difficulty:'중'});
+                          setNewTest({...newTest,saCount:e.target.value,questions:[...(newTest.questions||[]).filter(q=>q.type!=='주관식'),...newQs]});
+                        }} placeholder="예: 5" className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-400 transition-all text-sm"/>
+                      </div>
+                    </div>
+                    {(newTest.questions||[]).length > 0 && (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {(newTest.questions||[]).map((q,i)=>(
+                          <div key={i} className="grid grid-cols-12 gap-2 items-center bg-slate-50 px-3 py-2 rounded-2xl border border-slate-100">
+                            <span className="col-span-2 text-[10px] font-black text-slate-500">{q.type==='주관식'?'주':'객'}{q.num}번</span>
+                            <input type="number" value={q.points||''} onChange={(e)=>{const qs=[...(newTest.questions||[])];qs[i]={...qs[i],points:e.target.value};setNewTest({...newTest,questions:qs});}}
+                              placeholder="배점" className="col-span-2 px-2 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-orange-400 text-center"/>
+                            <input type="text" value={q.unit||''} onChange={(e)=>{const qs=[...(newTest.questions||[])];qs[i]={...qs[i],unit:e.target.value};setNewTest({...newTest,questions:qs});}}
+                              placeholder="단원" className="col-span-5 px-2 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-orange-400"/>
+                            <select value={q.difficulty||'중'} onChange={(e)=>{const qs=[...(newTest.questions||[])];qs[i]={...qs[i],difficulty:e.target.value};setNewTest({...newTest,questions:qs});}}
+                              className="col-span-3 px-1 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none">
+                              {['하','중하','중','중상','상','극상'].map(d=><option key={d}>{d}</option>)}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button onClick={addTest} className="w-full py-4 text-white rounded-2xl font-black shadow-lg transition-all active:scale-95" style={{background:'var(--sc)'}}>시험 등록</button>
                 </div>
               )}
@@ -1626,7 +1669,10 @@ export default function App() {
                                 <p className="text-[8px] text-orange-400 font-bold">{t.date}{t.maxScore ? ` · 만점 ${t.maxScore}점` : ''}</p>
                                 <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 mt-0.5 inline-block">AVG {stats.testAverages[t.id]}{t.maxScore ? ` / ${t.maxScore}` : ''}</span>
                                 {userRole === 'master' && (
-                                  <button onClick={()=>{setSelectedTest(t);setIsTestEditMode(false);}} className="block mx-auto mt-1 text-[8px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 hover:bg-slate-200 font-black transition-all">상세</button>
+                                  <div className="flex justify-center gap-1 mt-1">
+                                    <button onClick={()=>setSelectedTest({...t})} className="text-[8px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-400 hover:bg-blue-100 font-black transition-all">수정</button>
+                                    <button onClick={()=>setConfirmDelete({coll:'tests',id:t.id,label:t.title})} className="text-[8px] px-1.5 py-0.5 rounded bg-red-50 text-red-300 hover:bg-red-100 hover:text-red-500 font-black transition-all">삭제</button>
+                                  </div>
                                 )}
                               </div>
                             </th>
@@ -1651,9 +1697,21 @@ export default function App() {
                               return (
                                 <td key={t.id} className="px-3 py-3 text-center border-l border-slate-50">
                                   {res.absent === 'absent' ? (
-                                    <span className="text-[10px] font-black text-red-400">결시</span>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="text-[10px] font-black text-red-400">결시</span>
+                                      {userRole === 'master' && (
+                                        <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:false,score:null},{merge:true})}
+                                          className="text-[8px] font-black px-1.5 py-0.5 rounded-lg bg-red-50 text-red-400 border border-red-200 hover:bg-red-100 transition-all">취소 ×</button>
+                                      )}
+                                    </div>
                                   ) : res.absent === 'excluded' ? (
-                                    <span className="text-[10px] font-black text-slate-300">비대상</span>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="text-[10px] font-black text-slate-300">비대상</span>
+                                      {userRole === 'master' && (
+                                        <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:false,score:null},{merge:true})}
+                                          className="text-[8px] font-black px-1.5 py-0.5 rounded-lg bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 transition-all">취소 ×</button>
+                                      )}
+                                    </div>
                                   ) : userRole === 'master' ? (
                                     <div className="flex flex-col items-center gap-1">
                                       <div className="flex items-center gap-1">
@@ -1668,21 +1726,32 @@ export default function App() {
                                         if (allQs.length === 0) return null;
                                         const wrongNums = res.wrongNums || [];
                                         const partialScores = res.partialScores || {};
-                                        const calcScore = () => {
-                                          const maxScore = t.maxScore || allQs.reduce((sum,q)=>sum+(parseFloat(q.points)||0),0);
-                                          const deduct = wrongNums.reduce((sum,n)=>{
-                                            const q = allQs[n-1];
-                                            if (!q) return sum;
-                                            if (q.type === '주관식') return sum + (maxScore - (parseFloat(partialScores[n]) ?? parseFloat(q.points) ?? 0));
-                                            return sum + (parseFloat(q.points)||0);
+                                        // 객관식 총점 = 객관식 배점 합산
+                                        const mcTotal = allQs.filter(q=>q.type!=='주관식').reduce((sum,q)=>sum+(parseFloat(q.points)||0),0);
+                                        // 주관식 총점 = 주관식 배점 합산
+                                        const saTotal = allQs.filter(q=>q.type==='주관식').reduce((sum,q)=>sum+(parseFloat(q.points)||0),0);
+                                        // 만점 = 등록된 만점 또는 전체 배점 합산
+                                        const maxScore = parseFloat(t.maxScore) || (mcTotal + saTotal) || 0;
+                                        if (maxScore === 0) return null;
+                                        // 객관식 오답 차감
+                                        const mcDeduct = wrongNums
+                                          .filter(n=>{ const q=allQs[n-1]; return q && q.type!=='주관식'; })
+                                          .reduce((sum,n)=>sum+(parseFloat(allQs[n-1]?.points)||0),0);
+                                        // 주관식: 배점 - 부분점수 = 차감
+                                        const saDeduct = wrongNums
+                                          .filter(n=>{ const q=allQs[n-1]; return q && q.type==='주관식'; })
+                                          .reduce((sum,n)=>{
+                                            const q=allQs[n-1];
+                                            const full=parseFloat(q?.points)||0;
+                                            const partial=partialScores[n]!=null?parseFloat(partialScores[n]):0;
+                                            return sum+(full-partial);
                                           },0);
-                                          return Math.max(0, maxScore - deduct);
-                                        };
-                                        const auto = calcScore();
+                                        const auto = Math.max(0, maxScore - mcDeduct - saDeduct);
+                                        const autoFixed = isNaN(auto) ? 0 : parseFloat(auto.toFixed(1));
                                         return (
-                                          <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{score:auto},{merge:true})}
+                                          <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{score:autoFixed},{merge:true})}
                                             className="text-[8px] font-black px-1.5 py-0.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all leading-none mt-0.5 flex items-center gap-0.5">
-                                            <Zap size={8}/>{auto}점 자동기입
+                                            <Zap size={8}/>{autoFixed}점 자동기입
                                           </button>
                                         );
                                       })()}
@@ -1696,13 +1765,89 @@ export default function App() {
                                     </div>
                                   )}
                                   {userRole === 'master' && !res.absent && (
-                                    <div className="flex justify-center gap-2 mt-1">
-                                      <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:'absent',score:null},{merge:true})}
-                                        className="text-[8px] font-black text-red-300 hover:text-red-500 transition-colors">결시</button>
-                                      <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:'excluded',score:null},{merge:true})}
-                                        className="text-[8px] font-black text-slate-300 hover:text-slate-500 transition-colors">비대상</button>
+                                    <div className="flex flex-col items-center gap-1 mt-1">
+                                      <div className="flex justify-center gap-2">
+                                        <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:'absent',score:null},{merge:true})}
+                                          className="text-[8px] font-black text-red-300 hover:text-red-500 transition-colors">결시</button>
+                                        <button onClick={()=>setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{absent:'excluded',score:null},{merge:true})}
+                                          className="text-[8px] font-black text-slate-300 hover:text-slate-500 transition-colors">비대상</button>
+                                      </div>
+                                      {/* 오답 토글 */}
+                                      {(t.questions||[]).length > 0 && (
+                                        <div className="w-full mt-1 pt-1 border-t border-slate-50">
+                                          <p className="text-[8px] font-black text-slate-300 mb-1 text-center">오답 토글</p>
+                                          <div className="flex flex-wrap gap-0.5 justify-center mb-1">
+                                            {(t.questions||[]).map((q,qi)=>{
+                                              const wrongNums = res.wrongNums||[];
+                                              const isWrong = wrongNums.includes(qi+1);
+                                              const isSA = q.type==='주관식';
+                                              return (
+                                                <button key={qi} onClick={()=>{
+                                                  const next = isWrong ? wrongNums.filter(n=>n!==qi+1) : [...wrongNums,qi+1];
+                                                  setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{wrongNums:next},{merge:true});
+                                                }} className={`w-6 h-6 rounded-lg text-[8px] font-black border transition-all leading-none ${isWrong?(isSA?'bg-purple-500 border-purple-500 text-white':'bg-red-500 border-red-500 text-white'):'bg-white border-slate-200 text-slate-300 hover:border-red-300'}`}
+                                                title={isSA?'주관식':'객관식'}>
+                                                  {isSA?'주':'객'}{q.num||qi+1}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                          {/* 주관식 오답 - 부분점수 입력 */}
+                                          {(res.wrongNums||[]).some(n=>(t.questions||[])[n-1]?.type==='주관식') && (
+                                            <div className="space-y-1 mt-1">
+                                              <p className="text-[8px] font-black text-purple-400 text-center">주관식 부분점수</p>
+                                              {(res.wrongNums||[]).filter(n=>(t.questions||[])[n-1]?.type==='주관식').sort((a,b)=>a-b).map(n=>{
+                                                const q=(t.questions||[])[n-1];
+                                                const partialScores=res.partialScores||{};
+                                                return (
+                                                  <div key={n} className="flex items-center gap-2 bg-purple-50 px-2 py-1 rounded-lg">
+                                                    <span className="text-[9px] font-black text-purple-600 shrink-0">주{q.num||n}번</span>
+                                                    {q.points && <span className="text-[9px] text-purple-400 shrink-0">/{q.points}점</span>}
+                                                    <input type="number" min="0" max={q.points||9999}
+                                                      value={partialScores[n]??''}
+                                                      onChange={e=>{
+                                                        const val = e.target.value===''?null:Math.max(0,Math.min(parseFloat(e.target.value)||0,parseFloat(q.points)||9999));
+                                                        const newPS={...partialScores,[n]:val};
+                                                        setDoc(doc(db,'artifacts',APP_ID,'public','data','testScores',`${s.id}-${t.id}`),{partialScores:newPS},{merge:true});
+                                                      }}
+                                                      placeholder="부분점수"
+                                                      className="flex-1 min-w-0 px-1.5 py-0.5 bg-white border border-purple-200 rounded-lg text-[10px] font-bold text-center outline-none focus:border-purple-400"/>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
+                                  {/* 학생/선생님: 오답 문항 상세 */}
+                                  {userRole !== 'master' && !res.absent && (t.questions||[]).length > 0 && (() => {
+                                    const wrongNums = res.wrongNums||[];
+                                    if (!wrongNums.length) return <p className="text-[8px] font-black text-emerald-500 mt-1">✓ 오답 없음</p>;
+                                    const DCOL = {'하':'text-blue-500','중하':'text-cyan-600','중':'text-slate-500','중상':'text-amber-600','상':'text-orange-600','극상':'text-red-600'};
+                                    return (
+                                      <div className="mt-1 text-left space-y-0.5">
+                                        <p className="text-[8px] font-black text-red-400">오답 {wrongNums.length}개</p>
+                                        {wrongNums.sort((a,b)=>a-b).map(n=>{
+                                          const q=(t.questions||[])[n-1];
+                                          if(!q) return null;
+                                          return <div key={n} className="text-[8px] text-slate-500 font-bold">
+                                            <span className={`font-black ${DCOL[q.difficulty]||'text-slate-500'}`}>{q.type==='주관식'?'주':'객'}{q.num||n}번</span>
+                                            {q.unit ? ` · ${q.unit}` : ''}
+                                            {q.points ? ` (${q.points}점)` : ''}
+                                          </div>;
+                                        })}
+                                      </div>
+                                    );
+                                  })()}
+                                  {/* 등수 */}
+                                  {!res.absent && score!=null && !isNaN(parseFloat(score)) && (() => {
+                                    const allScores = students.map(st=>{const r=testScores[`${st.id}-${t.id}`];const v=r?.absent?null:parseFloat(r?.score);return(!isNaN(v)&&v!=null)?v:null;}).filter(v=>v!=null).sort((a,b)=>b-a);
+                                    const rank = allScores.indexOf(parseFloat(score))+1;
+                                    const total = allScores.length;
+                                    return rank>0 ? <p className="text-[8px] font-black text-indigo-400 mt-0.5">{rank}/{total}등</p> : null;
+                                  })()}
                                 </td>
                               );
                             })}
@@ -1710,6 +1855,87 @@ export default function App() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 점수 분포 / 오답 단원 분석 */}
+              {tests.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                  <h2 className="text-base font-black text-slate-800 mb-5 flex items-center gap-2"><BarChart3 size={18} className="text-orange-500"/> 시험 분석</h2>
+                  <div className="space-y-6">
+                    {tests.map(t=>{
+                      const allScores = students.map(s=>{const r=testScores[`${s.id}-${t.id}`];return r?.absent?null:r?.score;}).filter(v=>v!=null);
+                      if(!allScores.length) return null;
+                      const avg = (allScores.reduce((a,b)=>a+b,0)/allScores.length).toFixed(1);
+                      const max2 = Math.max(...allScores);
+                      const min2 = Math.min(...allScores);
+                      // 구간별 분포
+                      const bands = t.maxScore
+                        ? [{l:'90~100%',min:t.maxScore*0.9},{l:'70~90%',min:t.maxScore*0.7},{l:'50~70%',min:t.maxScore*0.5},{l:'~50%',min:0}]
+                        : [{l:'90점↑',min:90},{l:'70~89',min:70},{l:'50~69',min:50},{l:'~49',min:0}];
+                      // 오답 단원 분석
+                      const unitErr = {};
+                      students.forEach(s=>{
+                        const r=testScores[`${s.id}-${t.id}`]||{};
+                        (r.wrongNums||[]).forEach(n=>{
+                          const q=(t.questions||[])[n-1];
+                          if(q?.unit){unitErr[q.unit]=(unitErr[q.unit]||0)+1;}
+                        });
+                      });
+                      const topUnits = Object.entries(unitErr).sort((a,b)=>b[1]-a[1]).slice(0,5);
+                      return (
+                        <div key={t.id} className="border border-slate-100 rounded-2xl p-4">
+                          <p className="font-black text-slate-700 text-sm mb-3">{t.title} <span className="text-[10px] font-bold text-slate-400">{t.date}</span></p>
+                          <div className="grid grid-cols-3 gap-3 mb-4">
+                            {[{l:'평균',v:avg+'점'},{l:'최고',v:max2+'점'},{l:'최저',v:min2+'점'}].map(item=>(
+                              <div key={item.l} className="bg-orange-50 rounded-xl p-3 text-center">
+                                <p className="text-[10px] font-black text-orange-400 mb-1">{item.l}</p>
+                                <p className="font-black text-orange-700 text-lg leading-none">{item.v}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {/* 점수 분포 */}
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-2">점수 분포</p>
+                          <div className="space-y-1.5 mb-4">
+                            {bands.map((band,bi)=>{
+                              const nextMin = bi<bands.length-1?bands[bi+1].min:0;
+                              const count = allScores.filter(v=>v>=band.min&&(bi===0?true:v<(bi>0?bands[bi-1].min:Infinity))).length;
+                              const pct = Math.round(count/allScores.length*100);
+                              return (
+                                <div key={band.l} className="flex items-center gap-3">
+                                  <span className="text-[10px] font-black text-slate-400 w-16 shrink-0">{band.l}</span>
+                                  <div className="flex-1 h-5 bg-slate-50 rounded-lg overflow-hidden">
+                                    <div className="h-full bg-orange-400 rounded-lg transition-all flex items-center justify-end pr-2" style={{width:pct+'%'}}>
+                                      {pct>10&&<span className="text-[9px] font-black text-white">{count}명</span>}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{pct}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {/* 오답 단원 분석 */}
+                          {topUnits.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase mb-2">오답 많은 단원 TOP {topUnits.length}</p>
+                              <div className="space-y-1.5">
+                                {topUnits.map(([unit,cnt],i)=>(
+                                  <div key={unit} className="flex items-center gap-3">
+                                    <span className="text-[10px] font-black text-slate-300 w-4">{i+1}</span>
+                                    <span className="flex-1 text-[11px] font-black text-slate-600">{unit}</span>
+                                    <div className="flex items-center gap-1">
+                                      <div className="h-1.5 bg-red-400 rounded-full" style={{width:Math.round(cnt/students.length*60)+'px'}}/>
+                                      <span className="text-[10px] font-bold text-red-400">{cnt}명</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2686,6 +2912,77 @@ export default function App() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* 시험 정보 수정 모달 */}
+        {selectedTest && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={()=>setSelectedTest(null)}>
+            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e=>e.stopPropagation()}>
+              <div className="p-6 text-white flex justify-between items-start" style={{background:'var(--sc-darker)'}}>
+                <div>
+                  <h2 className="text-xl font-black">시험 정보 수정</h2>
+                  <p className="text-white/60 text-sm mt-1">{selectedTest.title}</p>
+                </div>
+                <button onClick={()=>setSelectedTest(null)} className="p-1 hover:bg-white/10 rounded-full"><LucideX size={20}/></button>
+              </div>
+              <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
+                {/* 기본 정보 수정 */}
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">시험 명칭</p>
+                    <BufferedInput value={selectedTest.title||''} onSave={(v)=>setSelectedTest(p=>({...p,title:v}))}
+                      className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-400 transition-all text-slate-800"/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">실시 일자</p>
+                      <input type="date" value={selectedTest.date||''} onChange={e=>setSelectedTest(p=>({...p,date:e.target.value}))}
+                        className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-400 transition-all text-slate-800"/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">만점</p>
+                      <BufferedInput type="number" value={selectedTest.maxScore??''} onSave={(v)=>setSelectedTest(p=>({...p,maxScore:v===''?null:parseFloat(v)||null}))}
+                        className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-400 transition-all text-slate-800" placeholder="예: 100"/>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">시험 유형</p>
+                    <div className="flex gap-2">
+                      {['중간 테스트','미니 테스트'].map(t=>(
+                        <button key={t} onClick={()=>setSelectedTest(p=>({...p,testType:t}))}
+                          className={`px-4 py-2 rounded-xl text-xs font-black border-2 transition ${selectedTest.testType===t?'bg-orange-500 border-orange-500 text-white':'border-slate-100 text-slate-400'}`}>{t}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {/* 문항 수정 */}
+                {(selectedTest.questions||[]).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">문항 수정</p>
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {(selectedTest.questions||[]).map((q,i)=>(
+                        <div key={i} className="grid grid-cols-12 gap-2 items-center bg-slate-50 px-3 py-2 rounded-2xl border border-slate-100">
+                          <span className="col-span-2 text-[10px] font-black text-slate-500">{q.type==='주관식'?'주':'객'}{q.num||i+1}번</span>
+                          <input type="number" value={q.points||''} onChange={(e)=>{const qs=[...(selectedTest.questions||[])];qs[i]={...qs[i],points:e.target.value};setSelectedTest(p=>({...p,questions:qs}));}}
+                            placeholder="배점" className="col-span-2 px-2 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-orange-400 text-center"/>
+                          <input type="text" value={q.unit||''} onChange={(e)=>{const qs=[...(selectedTest.questions||[])];qs[i]={...qs[i],unit:e.target.value};setSelectedTest(p=>({...p,questions:qs}));}}
+                            placeholder="단원" className="col-span-5 px-2 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-orange-400"/>
+                          <select value={q.difficulty||'중'} onChange={(e)=>{const qs=[...(selectedTest.questions||[])];qs[i]={...qs[i],difficulty:e.target.value};setSelectedTest(p=>({...p,questions:qs}));}}
+                            className="col-span-3 px-1 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none">
+                            {['하','중하','중','중상','상','극상'].map(d=><option key={d}>{d}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-3 pt-2">
+                  <button onClick={()=>setSelectedTest(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm">취소</button>
+                  <button onClick={updateTestDetails} className="flex-2 px-8 py-3 text-white rounded-2xl font-black text-sm shadow-lg transition-all active:scale-95" style={{background:'var(--sc)'}}>저장</button>
+                </div>
+              </div>
             </div>
           </div>
         )}

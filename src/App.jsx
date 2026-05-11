@@ -218,6 +218,196 @@ function SiteColorStyle({ color, dark }) {
   );
 }
 
+
+// --- Progress Mini Calendar Component ---
+function ProgressMiniCalendar({ progressPlans, progressCalMonth, setProgressCalMonth, kstToday, attendance, students, makeupDates, onDateSelect }) {
+  const [selectedDate, setSelectedDate] = useState(null);
+
+  const handleDateClick = (dateStr, dim) => {
+    if (dim) setProgressCalMonth(dateStr.slice(0, 7));
+    if (onDateSelect) {
+      onDateSelect(dateStr);
+    } else {
+      setSelectedDate(prev => prev === dateStr ? null : dateStr);
+    }
+  };
+
+  const [calYear, calMonthIdx] = progressCalMonth.split('-').map(Number);
+  const firstDay = new Date(calYear, calMonthIdx - 1, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonthIdx, 0).getDate();
+  const plansByDate = progressPlans.reduce((acc, p) => {
+    if (!acc[p.date]) acc[p.date] = [];
+    acc[p.date].push(p);
+    return acc;
+  }, {});
+
+  const prevMonth = () => {
+    let y = calYear, m = calMonthIdx - 1;
+    if (m < 1) { m = 12; y -= 1; }
+    setProgressCalMonth(`${y}-${String(m).padStart(2, '0')}`);
+  };
+  const nextMonth = () => {
+    let y = calYear, m = calMonthIdx + 1;
+    if (m > 12) { m = 1; y += 1; }
+    setProgressCalMonth(`${y}-${String(m).padStart(2, '0')}`);
+  };
+
+  const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+  const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+
+  const renderCell = (dateStr, day, colIdx, extra = {}) => {
+    const dayPlans = plansByDate[dateStr] || [];
+    const isToday = kstToday === dateStr;
+    const isSelected = selectedDate === dateStr;
+    const { dim = false } = extra;
+    return (
+      <div
+        key={`cell-${dateStr}-${dim?'dim':''}`}
+        onClick={() => handleDateClick(dateStr, dim)}
+        className={`border-b border-r border-slate-50 min-h-[60px] p-1.5 transition-all cursor-pointer
+          ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : dim ? 'bg-slate-50/30 hover:bg-slate-100/50' : 'hover:bg-slate-50/60'}`}
+      >
+        <div className={`text-xs font-black w-5 h-5 flex items-center justify-center rounded-full mb-1
+          ${isToday ? 'bg-emerald-500 text-white'
+            : isSelected ? 'bg-blue-500 text-white'
+            : dim ? (colIdx===0?'text-red-200':colIdx===6?'text-blue-200':'text-slate-300')
+            : colIdx===0?'text-red-400':colIdx===6?'text-blue-400':'text-slate-600'}`}>
+          {day}
+        </div>
+        {dayPlans.length > 0 && (
+          <div className="space-y-0.5">
+            {dayPlans.slice(0, 2).map(p => {
+              const lt = LESSON_TYPES.find(l => l.id === (p.lessonType || '진도')) || LESSON_TYPES[0];
+              return <div key={p.id} className={`text-[8px] font-black px-1 py-0.5 rounded leading-none truncate ${dim ? 'opacity-30' : (p.done ? 'opacity-50 line-through ' : '') + lt.calChip}`}>{p.subject} {p.unit}</div>;
+            })}
+            {dayPlans.length > 2 && <div className="text-[8px] text-slate-400 font-bold px-1">+{dayPlans.length - 2}</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const selectedPlans = selectedDate ? (plansByDate[selectedDate] || []) : [];
+  const selectedAttList = selectedDate && students ? students.map(s => ({
+    s,
+    att: attendance?.[`${s.id}-${selectedDate}`] || { status: 'none', makeup: false },
+    makeupDate: makeupDates?.[`${s.id}-${selectedDate}`] || '',
+  })) : [];
+  const hasData = selectedPlans.length > 0 || selectedAttList.some(x => x.att.status !== 'none');
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+        <button onClick={prevMonth} className="px-2 py-1.5 hover:bg-slate-100 rounded-xl transition-all text-slate-500 font-black text-sm">&#8249; 이전</button>
+        <span className="font-black text-slate-800 text-sm">{calYear}년 {calMonthIdx}월</span>
+        <button onClick={nextMonth} className="px-2 py-1.5 hover:bg-slate-100 rounded-xl transition-all text-slate-500 font-black text-sm">다음 &#8250;</button>
+      </div>
+      <div className="grid grid-cols-7 border-b border-slate-100">
+        {dayLabels.map((d, i) => (
+          <div key={d} className={`py-1.5 text-center text-[10px] font-black ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-400'}`}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {Array.from({ length: firstDay }).map((_, i) => {
+          const prevMonthDays = new Date(calYear, calMonthIdx - 1, 0).getDate();
+          const day = prevMonthDays - firstDay + i + 1;
+          let pY = calYear, pM = calMonthIdx - 1;
+          if (pM < 1) { pM = 12; pY -= 1; }
+          const dateStr = `${pY}-${String(pM).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          return renderCell(dateStr, day, i % 7, { dim: true });
+        })}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1;
+          const dateStr = `${calYear}-${String(calMonthIdx).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          const colIdx = (firstDay + i) % 7;
+          return renderCell(dateStr, day, colIdx);
+        })}
+        {Array.from({ length: (7 - (firstDay + daysInMonth) % 7) % 7 }).map((_, i) => {
+          const day = i + 1;
+          let nY = calYear, nM = calMonthIdx + 1;
+          if (nM > 12) { nM = 1; nY += 1; }
+          const dateStr = `${nY}-${String(nM).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          const colIdx = (firstDay + daysInMonth + i) % 7;
+          return renderCell(dateStr, day, colIdx, { dim: true });
+        })}
+      </div>
+
+      {/* 범례 */}
+      <div className="px-4 py-2.5 border-t border-slate-50 flex flex-wrap gap-3 items-center">
+        <div className="flex items-center gap-1.5">
+          <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+            <span className="text-white text-[7px] font-black">오늘</span>
+          </div>
+          <span className="text-[9px] font-bold text-slate-400">오늘</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-4 h-4 rounded-full bg-blue-500"/>
+          <span className="text-[9px] font-bold text-slate-400">선택</span>
+        </div>
+        <div className="w-px h-3 bg-slate-200"/>
+        {LESSON_TYPES.map(lt => (
+          <span key={lt.id} className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${lt.light}`}>{lt.id}</span>
+        ))}
+      </div>
+
+      {/* 선택 날짜 상세 패널 */}
+      {selectedDate && (
+        <div className="border-t border-slate-100">
+          <div className="px-4 py-3 flex items-center justify-between" style={{background:'var(--sc-faint)'}}>
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full" style={{background:'var(--sc)'}}/>
+              <span className="font-black text-sm" style={{color:'var(--sc)'}}>{selectedDate}</span>
+              <span className="text-[11px] font-bold text-slate-400">{DOW[new Date(selectedDate).getDay()]}요일</span>
+            </div>
+            <button onClick={() => setSelectedDate(null)} className="text-slate-400 hover:text-slate-600 transition-colors text-lg font-black leading-none">×</button>
+          </div>
+          {!hasData ? (
+            <div className="px-4 py-6 text-center text-slate-400 text-[11px] font-bold">이 날의 수업·출결 기록이 없습니다.</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {selectedPlans.length > 0 && (
+                <div className="px-4 py-3 space-y-1.5">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><span style={{color:'var(--sc)'}}>●</span> 수업 내용</p>
+                  {selectedPlans.map(p => {
+                    const lt = LESSON_TYPES.find(l => l.id === (p.lessonType || '진도')) || LESSON_TYPES[0];
+                    return (
+                      <div key={p.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 ${p.done ? 'opacity-60' : ''}`}>
+                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-lg border shrink-0 ${lt.light}`}>{p.lessonType || '진도'}</span>
+                        {p.subject && <span className="text-[10px] font-black text-slate-500 shrink-0">{p.subject}</span>}
+                        <span className={`text-[11px] font-black text-slate-700 flex-1 min-w-0 truncate ${p.done ? 'line-through' : ''}`}>{p.unit}</span>
+                        {p.done && <span className="text-[9px] font-black text-teal-500 shrink-0">✓</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {students && selectedAttList.some(x => x.att.status !== 'none') && (
+                <div className="px-4 py-3">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><span style={{color:'var(--sc)'}}>●</span> 출결 현황</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {selectedAttList.filter(x => x.att.status !== 'none').map(({ s, att, makeupDate }) => {
+                      const sm = { present: { l: '출석', c: 'text-emerald-600 bg-emerald-50 border-emerald-100' }, late: { l: '지각', c: 'text-amber-600 bg-amber-50 border-amber-100' }, absent: { l: '결석', c: 'text-red-500 bg-red-50 border-red-100' } }[att.status] || { l: '-', c: 'text-slate-300 bg-slate-50 border-slate-100' };
+                      return (
+                        <div key={s.id} className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-[10px] font-black ${sm.c}`}>
+                          <span>{s.name}</span>
+                          <div className="flex items-center gap-1">
+                            <span>{sm.l}</span>
+                            {att.makeup && <span className="text-[8px] bg-purple-100 text-purple-600 px-1 py-0.5 rounded font-black">{makeupDate ? makeupDate.slice(5)+'보충' : '보충'}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Error Boundary ---
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
@@ -1543,6 +1733,21 @@ export default function App() {
                     </button>
                   )}
                 </div>
+                {/* 달력 */}
+                <div className="mb-2">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><TrendingUp size={11} className="text-teal-500"/> 진도 수업 달력 (날짜 클릭 시 이동)</p>
+                  <ProgressMiniCalendar
+                    progressPlans={progressPlans}
+                    progressCalMonth={progressCalMonth}
+                    setProgressCalMonth={setProgressCalMonth}
+                    kstToday={kstToday}
+                    attendance={attendance}
+                    students={students}
+                    makeupDates={makeupDates}
+                    onDateSelect={(date) => setCurrentDate(date)}
+                  />
+                </div>
+
                 <div className="space-y-3">
                   {visibleStudentsFiltered.map(s => {
                     const att = attendance[`${s.id}-${currentDate}`] || { status: 'none', makeup: false };
@@ -1670,6 +1875,64 @@ export default function App() {
                   <button onClick={addPlan} className="w-full py-4 text-white rounded-2xl font-black shadow-lg transition-all active:scale-95" style={{background:'var(--sc)'}}>등록</button>
                 </div>
               )}
+
+              {/* 진도율 요약 */}
+              {(() => {
+                const jinDoPlans = progressPlans.filter(p => !p.lessonType || p.lessonType === '진도');
+                const totalPlans = jinDoPlans.length;
+                const donePlans = jinDoPlans.filter(p => p.done).length;
+                const overallPct = totalPlans > 0 ? Math.round((donePlans / totalPlans) * 100) : 0;
+                const subjectStats = subjects.reduce((acc, sub) => {
+                  const all = jinDoPlans.filter(p => p.subject === sub);
+                  const done = all.filter(p => p.done).length;
+                  if (all.length > 0) acc[sub] = { total: all.length, done };
+                  return acc;
+                }, {});
+                return (
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-black text-slate-800 flex items-center gap-2 leading-none"><TrendingUp size={18} className="text-teal-600" /> 전체 진도율</h3>
+                      <span className="text-2xl font-black text-teal-600 leading-none">{overallPct}%</span>
+                    </div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden mb-4">
+                      <div className="h-full bg-teal-500 rounded-full transition-all duration-500" style={{ width: overallPct + '%' }} />
+                    </div>
+                    {Object.keys(subjectStats).length > 0 && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {Object.entries(subjectStats).map(([sub, st]) => {
+                          const pct = Math.round((st.done / st.total) * 100);
+                          return (
+                            <div key={sub} className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                              <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[11px] font-black text-slate-600">{sub}</span>
+                                <span className="text-[11px] font-black text-teal-600">{pct}%</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div className="h-full bg-teal-400 rounded-full transition-all" style={{ width: pct + '%' }} />
+                              </div>
+                              <p className="text-[9px] text-slate-400 font-bold mt-1 leading-none">{st.done}/{st.total} 완료</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 달력 */}
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><TrendingUp size={11} className="text-teal-500"/> 진도 수업 달력</p>
+                <ProgressMiniCalendar
+                  progressPlans={progressPlans}
+                  progressCalMonth={progressCalMonth}
+                  setProgressCalMonth={setProgressCalMonth}
+                  kstToday={kstToday}
+                  attendance={attendance}
+                  students={students}
+                  makeupDates={makeupDates}
+                />
+              </div>
 
               {/* 진도 목록 */}
               {(() => {

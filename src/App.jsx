@@ -1047,31 +1047,125 @@ export default function App() {
     const inRange = (date) => !date || (date >= fromDate && date <= toDate);
     const lines = [];
     const now = new Date(Date.now()+9*60*60*1000).toISOString().split('T')[0];
-    lines.push(`===== 학원 학습 종합 리포트 =====`);
+
+    lines.push('===== 학원 영어 학습 종합 리포트 =====');
     lines.push(`생성일: ${now}  |  기간: ${from||'전체'} ~ ${to||'전체'}`);
-    lines.push(`학생 수: ${students.length}명\n`);
-    lines.push(`[과제 현황]`);
+    lines.push(`학생 수: ${students.length}명`);
+    lines.push('');
+
+    // ── 1. 과제 현황 ──
+    lines.push('[과제 현황]');
     const rangedAssign = assignments.filter(a => inRange(a.deadline));
-    rangedAssign.forEach(a => {
-      lines.push(`\n• ${a.subject} / ${a.level} — ${a.title}${a.deadline ? ` (마감: ${a.deadline})` : ''}`);
-      students.forEach(s => {
-        if (!(a.type === 'all' || (a.targetStudents && a.targetStudents.includes(s.id)))) return;
-        const sub = submissions[`${s.id}-${a.id}`] || {};
-        lines.push(`  ${s.name}: ${ASSIGN_STATUS_CONFIG[sub.status||'not_started']?.label||'-'}${sub.completionDate ? ` (완료일: ${sub.completionDate})` : ''}`);
+    if (!rangedAssign.length) {
+      lines.push('  (해당 기간 과제 없음)');
+    } else {
+      const completedAll = rangedAssign.filter(a => students.every(s => {
+        if (!(a.type==='all'||(a.targetStudents&&a.targetStudents.includes(s.id)))) return true;
+        const st = submissions[`${s.id}-${a.id}`]?.status||'not_started';
+        return st==='completed'||st==='exempt';
+      }));
+      lines.push(`  완료된 과제: ${completedAll.length}/${rangedAssign.length}개`);
+      rangedAssign.forEach(a => {
+        const targets = students.filter(s => a.type==='all'||(a.targetStudents&&a.targetStudents.includes(s.id)));
+        const done = targets.filter(s => ['completed','exempt'].includes(submissions[`${s.id}-${a.id}`]?.status||'not_started')).length;
+        const pct = targets.length ? Math.round(done/targets.length*100) : 0;
+        lines.push(`  • [${a.subject||'-'}] ${a.title} — 완료율 ${pct}% (${done}/${targets.length}명)${a.deadline?` 마감:${a.deadline}`:''}`);
+        targets.filter(s => !['completed','exempt'].includes(submissions[`${s.id}-${a.id}`]?.status||'not_started'))
+          .forEach(s => lines.push(`    ⚠ 미완료: ${s.name}`));
       });
-    });
-    if (!rangedAssign.length) lines.push('  (해당 기간 과제 없음)');
-    lines.push(`\n[암기 현황]`);
-    memoItems.forEach(m => {
-      lines.push(`\n• ${m.subject} / ${m.level} — ${m.title}${m.memoSection ? ` [${m.memoSection}]` : ''}`);
-      students.forEach(s => {
-        if (!(m.type === 'all' || (m.targetStudents && m.targetStudents.includes(s.id)))) return;
-        const sub = memoSubmissions[`${s.id}-${m.id}`] || {};
-        lines.push(`  ${s.name}: ${MEMO_STATUS_CONFIG[sub.status||'not_started']?.label||'-'}`);
+    }
+    lines.push('');
+
+    // ── 2. 암기 현황 ──
+    lines.push('[암기 현황]');
+    if (!memoItems.length) {
+      lines.push('  (암기 항목 없음)');
+    } else {
+      memoItems.forEach(m => {
+        const targets = students.filter(s => m.type==='all'||(m.targetStudents&&m.targetStudents.includes(s.id)));
+        const r4 = targets.filter(s => memoSubmissions[`${s.id}-${m.id}`]?.status==='round_4').length;
+        const pct = targets.length ? Math.round(r4/targets.length*100) : 0;
+        lines.push(`  • [${m.subject||'-'}${m.memoSection?` / ${m.memoSection}`:''}] ${m.title} — 4회독 완료 ${pct}% (${r4}/${targets.length}명)`);
+        targets.forEach(s => {
+          const st = memoSubmissions[`${s.id}-${m.id}`]?.status||'not_started';
+          if (st!=='round_4') lines.push(`    ${s.name}: ${MEMO_STATUS_CONFIG[st]?.label||'-'}`);
+        });
       });
-    });
-    if (!memoItems.length) lines.push('  (암기 항목 없음)');
-    lines.push(`\n================================`);
+    }
+    lines.push('');
+
+    // ── 3. 시험 성적 ──
+    lines.push('[시험 성적]');
+    const rangedTests = tests.filter(t => inRange(t.date));
+    if (!rangedTests.length) {
+      lines.push('  (해당 기간 시험 없음)');
+    } else {
+      rangedTests.forEach(t => {
+        const scores = students.map(s => {
+          const r = testScores[`${s.id}-${t.id}`]||{};
+          return r.absent ? null : (r.score!=null ? parseFloat(r.score) : null);
+        }).filter(v => v!=null && !isNaN(v));
+        const avg = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '-';
+        const max2 = scores.length ? Math.max(...scores) : '-';
+        const min2 = scores.length ? Math.min(...scores) : '-';
+        lines.push(`  • ${t.title} (${t.date}${t.maxScore?` / 만점 ${t.maxScore}점`:''}) — 평균 ${avg}점 | 최고 ${max2}점 | 최저 ${min2}점`);
+        students.forEach(s => {
+          const r = testScores[`${s.id}-${t.id}`]||{};
+          const sc = r.absent ? (r.absent==='absent'?'결시':'비대상') : r.score!=null ? `${r.score}점` : '미입력';
+          const diff = (!r.absent && r.score!=null && avg!=='-') ? ` (평균대비 ${(parseFloat(r.score)-parseFloat(avg))>=0?'+':''}${(parseFloat(r.score)-parseFloat(avg)).toFixed(1)})` : '';
+          lines.push(`    ${s.name}: ${sc}${diff}`);
+        });
+      });
+    }
+    lines.push('');
+
+    // ── 4. 출결 현황 ──
+    lines.push('[출결 현황]');
+    const attDates = Object.keys(attendance)
+      .map(k => k.split('-').slice(1).join('-'))
+      .filter((d,i,a) => a.indexOf(d)===i && inRange(d))
+      .sort();
+    if (!attDates.length) {
+      lines.push('  (해당 기간 출결 기록 없음)');
+    } else {
+      students.forEach(s => {
+        const present = attDates.filter(d => attendance[`${s.id}-${d}`]?.status==='present').length;
+        const late = attDates.filter(d => attendance[`${s.id}-${d}`]?.status==='late').length;
+        const absent2 = attDates.filter(d => attendance[`${s.id}-${d}`]?.status==='absent').length;
+        const total = attDates.length;
+        const rate = total ? Math.round(present/total*100) : 0;
+        lines.push(`  ${s.name}: 출석 ${present}회 / 지각 ${late}회 / 결석 ${absent2}회 (출석률 ${rate}%)`);
+      });
+    }
+    lines.push('');
+
+    // ── 5. 진도 현황 ──
+    lines.push('[진도 현황]');
+    const rangedPlans = progressPlans.filter(p => inRange(p.date));
+    if (!rangedPlans.length) {
+      lines.push('  (해당 기간 진도 기록 없음)');
+    } else {
+      const done2 = rangedPlans.filter(p=>p.done).length;
+      lines.push(`  수업 진행: ${done2}/${rangedPlans.length}회 완료`);
+      // 과목별
+      const subMap = {};
+      rangedPlans.forEach(p => {
+        const sub = p.subject||'미분류';
+        if (!subMap[sub]) subMap[sub]={total:0,done:0};
+        subMap[sub].total++;
+        if (p.done) subMap[sub].done++;
+      });
+      Object.entries(subMap).forEach(([sub,st]) => {
+        lines.push(`  • ${sub}: ${st.done}/${st.total}회`);
+      });
+      rangedPlans.slice(0,10).forEach(p => {
+        lines.push(`  ${p.date} [${p.lessonType||'진도'}${p.subject?` / ${p.subject}`:''}] ${p.unit}${p.done?' ✓':''}`);
+      });
+      if (rangedPlans.length > 10) lines.push(`  ... 외 ${rangedPlans.length-10}건`);
+    }
+    lines.push('');
+    lines.push('================================');
+
     setReportText(lines.join('\n'));
     setReportGenerated(true);
     setAiAnalysis('');
@@ -1088,7 +1182,7 @@ export default function App() {
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          messages: [{ role: 'user', content: `당신은 영어 학원 학습 데이터 분석 전문가입니다. 아래 학습 리포트를 분석하고, 한국어로 구체적인 개선점을 제안해 주세요.\n\n리포트:\n${reportText}` }]
+          messages: [{ role: 'user', content: `당신은 영어 학원 학습 데이터 분석 전문가입니다. 아래 학습 리포트를 분석하고 다음 항목을 한국어로 작성해 주세요:\n\n1. 전체 학습 현황 요약 (2-3줄)\n2. 잘하고 있는 점\n3. 개선이 필요한 점 (구체적 학생명과 항목 포함)\n4. 다음 수업을 위한 액션 아이템 3가지\n5. 출결/진도 특이사항\n\n리포트:\n${reportText}` }]
         })
       });
       const data = await res.json();
@@ -2412,37 +2506,171 @@ export default function App() {
           ==================================================== */}
           {activeTab === 'report' && userRole !== 'student' && (
             <div className="max-w-4xl mx-auto space-y-6">
-              <div className="bg-white p-5 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
-                <h2 className="text-lg font-bold mb-6 flex items-center gap-2"><Printer size={20}/> 리포트 생성</h2>
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div><p className="text-[10px] font-black text-slate-400 mb-2">시작일</p><input type="date" value={reportRange.from} onChange={e=>setReportRange(p=>({...p,from:e.target.value}))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-blue-400 transition-all" /></div>
-                  <div><p className="text-[10px] font-black text-slate-400 mb-2">종료일</p><input type="date" value={reportRange.to} onChange={e=>setReportRange(p=>({...p,to:e.target.value}))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-blue-400 transition-all" /></div>
-                </div>
-                <button onClick={generateReport} className="w-full py-4 text-white rounded-2xl font-black shadow-lg transition-all active:scale-95" style={{background:'var(--sc)'}}>리포트 생성</button>
-              </div>
-              {reportGenerated && reportText && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <p className="font-black text-slate-800">생성된 리포트</p>
-                    <div className="flex gap-2">
-                      <button onClick={()=>navigator.clipboard.writeText(reportText)} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl font-black text-xs flex items-center gap-1"><Copy size={12}/>복사</button>
-                      {!aiLoading && !aiAnalysis && (
-                        <button onClick={requestAiAnalysis} className="px-3 py-1.5 text-white rounded-xl font-black text-xs flex items-center gap-1 shadow-sm" style={{background:'var(--sc)'}}><Sparkles size={12}/>AI 분석</button>
+              {/* 리포트 생성 */}
+              {(() => {
+                const hasSelection = Object.values(selectedReportTests).some(Boolean);
+                const chosenTests = hasSelection ? tests.filter(t => selectedReportTests[t.id]) : tests;
+
+                const printReport = () => {
+                  const win = window.open('', '_blank', 'width=1000,height=900');
+                  const now = new Date(Date.now()+9*60*60*1000).toISOString().split('T')[0];
+                  const fromDate = reportRange.from || '';
+                  const toDate = reportRange.to || '';
+                  const inRange = (date) => !date || (!fromDate && !toDate) || (date >= (fromDate||'0000') && date <= (toDate||'9999'));
+
+                  // ── 학생별 시험 성적 ──
+                  const sortedTests2 = chosenTests.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+                  const thds = sortedTests2.map(t =>
+                    `<th style="padding:7px 8px;background:#fff7ed;color:#ea580c;font-size:10px;white-space:nowrap;border:1px solid #e2e8f0">${t.title}<br/><span style="font-weight:400;font-size:9px">${t.date}${t.maxScore ? ' · '+t.maxScore+'점' : ''}</span></th>`
+                  ).join('');
+
+                  const studentRows = students.map(s => {
+                    const tds = sortedTests2.map(t => {
+                      const res = testScores[`${s.id}-${t.id}`] || {};
+                      const sc = res.score;
+                      const val = res.absent === 'absent' ? '결시' : res.absent === 'excluded' ? '-' : sc != null ? sc+'점' : '-';
+                      const color = res.absent === 'absent' ? '#ef4444' : sc != null ? '#1e293b' : '#cbd5e1';
+                      const pct = (sc != null && t.maxScore) ? ' ('+Math.round(sc/t.maxScore*100)+'%)' : '';
+                      return `<td style="padding:7px 8px;text-align:center;font-weight:${sc!=null||res.absent?'900':'400'};color:${color};border:1px solid #e2e8f0">${val}${pct}</td>`;
+                    }).join('');
+                    const validScores = sortedTests2.map(t => { const r=testScores[`${s.id}-${t.id}`]; return r?.absent?null:(r?.score!=null?parseFloat(r.score):null); }).filter(v=>v!=null&&!isNaN(v));
+                    const avg = validScores.length ? (validScores.reduce((a,b)=>a+b,0)/validScores.length).toFixed(1) : '-';
+                    const wrongUnits = sortedTests2.flatMap(t => { const r=testScores[`${s.id}-${t.id}`]||{}; return (r.wrongNums||[]).map(n=>(t.questions||[])[n-1]?.unit).filter(Boolean); });
+                    const unitMap = {}; wrongUnits.forEach(u=>{unitMap[u]=(unitMap[u]||0)+1;});
+                    const topUnits = Object.entries(unitMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([u,c])=>`${u}(${c}회)`).join(', ');
+                    return `<tr><td style="padding:7px 8px;font-weight:700;white-space:nowrap;border:1px solid #e2e8f0">${s.name}</td>${tds}<td style="padding:7px 8px;text-align:center;font-weight:900;color:#ea580c;border:1px solid #e2e8f0">${avg}${avg!=='-'?'점':''}</td><td style="padding:7px 8px;font-size:10px;color:#ef4444;border:1px solid #e2e8f0">${topUnits||'-'}</td></tr>`;
+                  }).join('');
+
+                  // ── 반 평균 ──
+                  const avgs = sortedTests2.map(t => {
+                    const vs = students.map(s=>{const r=testScores[`${s.id}-${t.id}`];const v=r?.absent?null:parseFloat(r?.score);return(!isNaN(v)&&v!=null)?v:null;}).filter(v=>v!=null);
+                    const avg = vs.length ? (vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(1) : '-';
+                    return `<td style="padding:7px 8px;text-align:center;font-weight:900;color:#ea580c;background:#fff7ed;border:1px solid #e2e8f0">${avg}${avg!=='-'?'점':''}</td>`;
+                  }).join('');
+
+                  // ── 과제 현황 ──
+                  const rangedAssign = assignments.filter(a => inRange(a.deadline));
+                  const assignRows = rangedAssign.map(a => {
+                    const targets = students.filter(s => a.type==='all'||(a.targetStudents&&a.targetStudents.includes(s.id)));
+                    const done = targets.filter(s => ['completed','exempt'].includes(submissions[`${s.id}-${a.id}`]?.status||'not_started')).length;
+                    const pct = targets.length ? Math.round(done/targets.length*100) : 0;
+                    const incomplete = targets.filter(s => !['completed','exempt'].includes(submissions[`${s.id}-${a.id}`]?.status||'not_started')).map(s=>s.name).join(', ');
+                    return `<tr><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:700">${a.subject||'-'}</td><td style="padding:6px 8px;border:1px solid #e2e8f0">${a.title}</td><td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center;font-weight:900;color:${pct===100?'#22c55e':'#ea580c'}">${pct}%</td><td style="padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;color:#ef4444">${incomplete||'전원 완료'}</td></tr>`;
+                  }).join('');
+
+                  // ── 진도 현황 ──
+                  const rangedPlans = progressPlans.filter(p => inRange(p.date)).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+                  const planRows = rangedPlans.map(p =>
+                    `<tr><td style="padding:5px 8px;border:1px solid #e2e8f0;white-space:nowrap">${p.date||'-'}</td><td style="padding:5px 8px;border:1px solid #e2e8f0">${p.lessonType||'진도'}</td><td style="padding:5px 8px;border:1px solid #e2e8f0">${p.subject||'-'}</td><td style="padding:5px 8px;border:1px solid #e2e8f0">${p.unit||'-'}</td><td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;color:${p.done?'#22c55e':'#94a3b8'}">${p.done?'✓':'-'}</td></tr>`
+                  ).join('');
+
+                  // ── 출결 현황 ──
+                  const attDates = Object.keys(attendance).map(k=>k.split('-').slice(1).join('-')).filter((d,i,a)=>a.indexOf(d)===i&&inRange(d)).sort();
+                  const attRows = students.map(s => {
+                    const present = attDates.filter(d=>attendance[`${s.id}-${d}`]?.status==='present').length;
+                    const late = attDates.filter(d=>attendance[`${s.id}-${d}`]?.status==='late').length;
+                    const absent2 = attDates.filter(d=>attendance[`${s.id}-${d}`]?.status==='absent').length;
+                    const rate = attDates.length ? Math.round(present/attDates.length*100) : 0;
+                    return `<tr><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:700">${s.name}</td><td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center">${present}</td><td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center;color:#d97706">${late}</td><td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center;color:#ef4444">${absent2}</td><td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center;font-weight:900;color:${rate>=90?'#22c55e':rate>=70?'#d97706':'#ef4444'}">${rate}%</td></tr>`;
+                  }).join('');
+
+                  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>학습 종합 리포트</title>
+                  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Malgun Gothic','Apple SD Gothic Neo',sans-serif;padding:24px;color:#1e293b;font-size:12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+                  h1{font-size:20px;font-weight:900;color:#1d4ed8;margin-bottom:4px}.meta{font-size:11px;color:#94a3b8;margin-bottom:20px}
+                  .section{margin-bottom:28px;page-break-inside:avoid}.section-title{font-size:11px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:5px;border-bottom:2px solid #f1f5f9}
+                  table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f8fafc;padding:7px 8px;font-weight:900;text-align:center;border:1px solid #e2e8f0}
+                  tbody tr:nth-child(even) td{background:#f8fafc}@media print{body{padding:10px}tr{page-break-inside:avoid}}</style></head><body>
+                  <h1>📊 ${siteTitle} 학습 종합 리포트</h1>
+                  <p class="meta">출력일: ${now} · 기간: ${fromDate||'전체'} ~ ${toDate||'전체'} · 학생 ${students.length}명</p>
+                  ${sortedTests2.length ? `<div class="section"><div class="section-title">🏆 시험 성적</div>
+                  <table><thead><tr><th style="border:1px solid #e2e8f0">이름</th>${thds}<th style="background:#fff7ed;color:#ea580c;border:1px solid #e2e8f0">평균</th><th style="background:#fef2f2;color:#ef4444;border:1px solid #e2e8f0">취약 단원</th></tr></thead>
+                  <tbody>${studentRows}</tbody><tfoot><tr><td style="padding:7px 8px;font-weight:900;background:#fff7ed;border:1px solid #e2e8f0">반 평균</td>${avgs}<td colspan="2" style="background:#fff7ed;border:1px solid #e2e8f0"></td></tr></tfoot></table></div>` : ''}
+                  ${rangedAssign.length ? `<div class="section"><div class="section-title">📋 과제 현황</div>
+                  <table><thead><tr><th style="border:1px solid #e2e8f0">과목</th><th style="border:1px solid #e2e8f0">과제명</th><th style="border:1px solid #e2e8f0">완료율</th><th style="border:1px solid #e2e8f0">미완료 학생</th></tr></thead><tbody>${assignRows}</tbody></table></div>` : ''}
+                  ${attDates.length ? `<div class="section"><div class="section-title">📅 출결 현황</div>
+                  <table><thead><tr><th style="border:1px solid #e2e8f0">이름</th><th style="border:1px solid #e2e8f0">출석</th><th style="border:1px solid #e2e8f0">지각</th><th style="border:1px solid #e2e8f0">결석</th><th style="border:1px solid #e2e8f0">출석률</th></tr></thead><tbody>${attRows}</tbody></table></div>` : ''}
+                  ${rangedPlans.length ? `<div class="section"><div class="section-title">📈 진도 현황</div>
+                  <table><thead><tr><th style="border:1px solid #e2e8f0">날짜</th><th style="border:1px solid #e2e8f0">유형</th><th style="border:1px solid #e2e8f0">과목</th><th style="border:1px solid #e2e8f0">내용</th><th style="border:1px solid #e2e8f0">완료</th></tr></thead><tbody>${planRows}</tbody></table></div>` : ''}
+                  <script>window.onload=function(){window.print();window.close();};<\/script></body></html>`);
+                  win.document.close();
+                };
+
+                return (
+                  <div className="space-y-5">
+                    {/* 날짜 범위 */}
+                    <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+                      <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><Printer size={20}/> 리포트 생성</h2>
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 mb-2">시작일</p>
+                          <input type="date" value={reportRange.from} onChange={e=>setReportRange(p=>({...p,from:e.target.value}))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-blue-400 transition-all text-slate-800"/>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 mb-2">종료일</p>
+                          <input type="date" value={reportRange.to} onChange={e=>setReportRange(p=>({...p,to:e.target.value}))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-blue-400 transition-all text-slate-800"/>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mb-5">
+                        {[
+                          {l:'이번 주', fn:()=>{const d=new Date(Date.now()+9*60*60*1000);const day=d.getDay();const mon=new Date(d);mon.setDate(d.getDate()-(day===0?6:day-1));const sun=new Date(mon);sun.setDate(mon.getDate()+6);setReportRange({from:mon.toISOString().split('T')[0],to:sun.toISOString().split('T')[0]});}},
+                          {l:'이번 달', fn:()=>{const d=new Date(Date.now()+9*60*60*1000);const y=d.getFullYear();const m=d.getMonth();const last=new Date(y,m+1,0);setReportRange({from:`${y}-${String(m+1).padStart(2,'0')}-01`,to:last.toISOString().split('T')[0]});}},
+                          {l:'지난 달', fn:()=>{const d=new Date(Date.now()+9*60*60*1000);const y=d.getMonth()===0?d.getFullYear()-1:d.getFullYear();const m=d.getMonth()===0?12:d.getMonth();const last=new Date(y,m,0);setReportRange({from:`${y}-${String(m).padStart(2,'0')}-01`,to:last.toISOString().split('T')[0]});}},
+                          {l:'전체', fn:()=>setReportRange({from:'',to:''})},
+                        ].map(btn=>(
+                          <button key={btn.l} onClick={btn.fn} className="px-3 py-1.5 rounded-xl text-xs font-black border border-slate-200 bg-slate-50 text-slate-500 hover:border-blue-400 hover:text-blue-500 transition-all">{btn.l}</button>
+                        ))}
+                      </div>
+                      {/* 달력 */}
+                      <p className="text-[10px] font-black text-slate-400 mb-2 flex items-center gap-1"><Calendar size={11}/> 달력 날짜 클릭으로 범위 선택 <span className="text-slate-300 font-medium">(첫 클릭: 시작일 · 두 번째: 종료일)</span></p>
+                      <ProgressMiniCalendar
+                        progressPlans={progressPlans}
+                        progressCalMonth={progressCalMonth}
+                        setProgressCalMonth={setProgressCalMonth}
+                        kstToday={kstToday}
+                        attendance={attendance}
+                        students={students}
+                        makeupDates={makeupDates}
+                        onDateSelect={(date) => {
+                          if (!reportRange.from || (reportRange.from && reportRange.to)) {
+                            setReportRange({from:date, to:''});
+                          } else {
+                            if (date >= reportRange.from) setReportRange(p=>({...p,to:date}));
+                            else setReportRange({from:date, to:reportRange.from});
+                          }
+                        }}
+                      />
+                      {(reportRange.from || reportRange.to) && (
+                        <div className="mt-2 px-4 py-2 bg-blue-50 rounded-2xl border border-blue-100 flex items-center gap-2">
+                          <Calendar size={12} className="text-blue-400"/>
+                          <span className="text-xs font-black text-blue-600">{reportRange.from||'시작일 미설정'} ~ {reportRange.to||'종료일 미설정'}</span>
+                          <button onClick={()=>setReportRange({from:'',to:''})} className="ml-auto text-blue-300 hover:text-blue-500 font-black text-sm">×</button>
+                        </div>
                       )}
                     </div>
+
+                    {/* 시험 선택 */}
+                    {tests.length > 0 && (
+                      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
+                        <p className="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><Trophy size={15} className="text-orange-500"/> 포함할 시험 선택 <span className="text-[10px] font-medium text-slate-400">(미선택 시 전체)</span></p>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {tests.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(t=>(
+                            <button key={t.id} onClick={()=>setSelectedReportTests(p=>({...p,[t.id]:!p[t.id]}))}
+                              className={`px-3 py-1.5 rounded-xl text-[11px] font-black border-2 transition-all ${selectedReportTests[t.id]?'bg-orange-500 border-orange-500 text-white shadow-sm':'bg-white border-slate-200 text-slate-500 hover:border-orange-300'}`}>
+                              {t.title} <span className="opacity-60 font-medium">{t.date}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {hasSelection && <button onClick={()=>setSelectedReportTests({})} className="text-[10px] font-black text-red-400 hover:text-red-600 transition-colors">선택 초기화</button>}
+                      </div>
+                    )}
+
+                    {/* 출력 버튼 */}
+                    <button onClick={printReport} className="w-full py-4 text-white rounded-2xl font-black shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2" style={{background:'var(--sc)'}}>
+                      <Printer size={18}/> 리포트 출력 (새 창)
+                    </button>
                   </div>
-                  <div className="p-6">
-                    <pre className="text-xs font-mono text-slate-600 whitespace-pre-wrap leading-relaxed select-text">{reportText}</pre>
-                  </div>
-                  {aiLoading && <div className="p-8 text-center flex items-center justify-center gap-2 text-slate-500 font-bold"><Loader2 size={18} className="animate-spin" style={{color:'var(--sc)'}}/>AI 분석 중...</div>}
-                  {aiAnalysis && !aiLoading && (
-                    <div className="p-6 border-t border-slate-100">
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Bot size={12}/>AI 분석 결과</p>
-                      <div className="prose prose-sm max-w-none text-slate-700 font-medium leading-relaxed whitespace-pre-wrap text-sm">{aiAnalysis}</div>
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
 
@@ -2581,9 +2809,52 @@ export default function App() {
                     <div>
                       <p className="text-[10px] font-black text-slate-400 mb-3 uppercase flex items-center gap-1"><UserCheck size={12}/> {regCategory==='memorization'?'4':'3'}. 대상</p>
                       <div className="flex gap-2 mb-3">
-                        <button onClick={()=>setNewAssignment(p=>({...p,type:'all',targetStudents:[]}))} className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 ${newAssignment.type==='all'?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'bg-white border-slate-100 text-slate-400'}`}>전체</button>
-                        <button onClick={()=>setNewAssignment(p=>({...p,type:'individual'}))} className={`flex-1 py-2 rounded-xl text-xs font-black border-2 ${newAssignment.type==='individual'?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'bg-white border-slate-100 text-slate-400'}`}>개별</button>
+                        <button onClick={()=>setNewAssignment(p=>({...p,type:'all',targetStudents:[]}))}
+                          className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 ${newAssignment.type==='all'?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'bg-white border-slate-100 text-slate-400'}`}>전체</button>
+                        <button onClick={()=>setNewAssignment(p=>({...p,type:'group',targetStudents:[]}))}
+                          className={`flex-1 py-2 rounded-xl text-xs font-black border-2 ${newAssignment.type==='group'?'bg-amber-500 border-amber-500 text-white shadow-sm':'bg-white border-slate-100 text-slate-400'}`}>그룹</button>
+                        <button onClick={()=>setNewAssignment(p=>({...p,type:'individual',targetStudents:[]}))}
+                          className={`flex-1 py-2 rounded-xl text-xs font-black border-2 ${newAssignment.type==='individual'?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'bg-white border-slate-100 text-slate-400'}`}>개별</button>
                       </div>
+
+                      {/* 그룹 선택 */}
+                      {newAssignment.type === 'group' && (() => {
+                        const groups = [...new Set(students.map(s=>s.group||'').filter(Boolean))].sort();
+                        if (!groups.length) return <p className="text-xs text-slate-400 font-bold">등록된 그룹이 없습니다. 학생 관리에서 그룹을 설정해주세요.</p>;
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap gap-2">
+                              {groups.map(g=>{
+                                const gStudents = students.filter(s=>s.group===g).map(s=>s.id);
+                                const allSel = gStudents.every(id=>newAssignment.targetStudents.includes(id));
+                                return (
+                                  <button key={g} onClick={()=>{
+                                    setNewAssignment(p=>({
+                                      ...p,
+                                      targetStudents: allSel
+                                        ? p.targetStudents.filter(id=>!gStudents.includes(id))
+                                        : [...new Set([...p.targetStudents,...gStudents])]
+                                    }));
+                                  }} className={`px-3 py-1.5 rounded-xl text-xs font-black border-2 transition-all flex items-center gap-1.5 ${allSel?'bg-amber-500 border-amber-500 text-white shadow-sm':'border-amber-200 text-amber-600 bg-amber-50 hover:bg-amber-100'}`}>
+                                    그룹 {g}
+                                    <span className="text-[10px] opacity-70">({gStudents.length}명)</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {newAssignment.targetStudents.length > 0 && (
+                              <div className="bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
+                                <p className="text-[10px] font-black text-amber-600 mb-1">선택된 학생 ({newAssignment.targetStudents.length}명)</p>
+                                <p className="text-xs text-amber-700 font-bold">
+                                  {students.filter(s=>newAssignment.targetStudents.includes(s.id)).map(s=>s.name).join(', ')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* 개별 선택 */}
                       {newAssignment.type === 'individual' && (
                         <div className="flex flex-wrap gap-2">
                           {students.map(s=>(
@@ -2592,7 +2863,10 @@ export default function App() {
                                 ? newAssignment.targetStudents.filter(id=>id!==s.id)
                                 : [...newAssignment.targetStudents,s.id];
                               setNewAssignment(p=>({...p,targetStudents:next}));
-                            }} className={`px-3 py-1.5 rounded-xl text-xs font-black border-2 transition-all ${newAssignment.targetStudents.includes(s.id)?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'border-slate-100 text-slate-400 hover:border-slate-200'}`}>{s.name}</button>
+                            }} className={`px-3 py-1.5 rounded-xl text-xs font-black border-2 transition-all ${newAssignment.targetStudents.includes(s.id)?'bg-indigo-600 border-indigo-600 text-white shadow-sm':'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+                              {s.name}
+                              {s.group && <span className="ml-1 text-[9px] opacity-60">({s.group})</span>}
+                            </button>
                           ))}
                         </div>
                       )}
@@ -2633,27 +2907,123 @@ export default function App() {
                 {(regCategory==='assignment'?assignments:memoItems).map(a=>(
                   <div key={a.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     {editItemId === a.id ? (
-                      <div className="space-y-3">
-                        <BufferedInput value={editItemData?.title||''} onSave={(v)=>setEditItemData(p=>({...p,title:v}))} className="w-full px-3 py-2 border-2 border-slate-100 rounded-xl font-bold text-sm outline-none focus:border-blue-400 bg-white text-slate-800" />
-                        <div className="flex flex-wrap gap-2">
-                          {subjects.map(sub=>(
-                            <button key={sub} onClick={()=>setEditItemData(p=>({...p,subject:sub}))}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.subject===sub?'text-white border-transparent':'border-slate-100 text-slate-400'}`}
-                              style={editItemData?.subject===sub?{background:'var(--sc)'}:{}}>{sub}</button>
-                          ))}
+                      <div className="space-y-3 bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        {/* 제목 */}
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">제목</p>
+                          <BufferedInput value={editItemData?.title||''} onSave={(v)=>setEditItemData(p=>({...p,title:v}))} className="w-full px-3 py-2.5 border-2 border-white rounded-xl font-bold text-sm outline-none focus:border-blue-400 bg-white text-slate-800" />
                         </div>
-                        {regCategory === 'memorization' && memoSections.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            <button onClick={()=>setEditItemData(p=>({...p,memoSection:''}))} className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${!editItemData?.memoSection?'bg-purple-600 border-purple-600 text-white':'border-slate-100 text-slate-400'}`}>영역 없음</button>
-                            {memoSections.map(sec=>(
-                              <button key={sec} onClick={()=>setEditItemData(p=>({...p,memoSection:sec}))}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.memoSection===sec?'bg-purple-600 border-purple-600 text-white':'border-slate-100 text-slate-400'}`}>{sec}</button>
+
+                        {/* 과목 */}
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">과목</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {subjects.map(sub=>(
+                              <button key={sub} onClick={()=>setEditItemData(p=>({...p,subject:sub}))}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.subject===sub?'text-white border-transparent':'border-slate-200 text-slate-400 bg-white'}`}
+                                style={editItemData?.subject===sub?{background:'var(--sc)'}:{}}>{sub}</button>
                             ))}
                           </div>
+                        </div>
+
+                        {/* 난이도 (과제만) */}
+                        {editItemData?.category === 'assignment' && (
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">난이도</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {ASSIGNMENT_LEVELS.map(lv=>(
+                                <button key={lv} onClick={()=>setEditItemData(p=>({...p,level:lv}))}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.level===lv?'bg-amber-500 border-amber-500 text-white':'border-slate-200 text-slate-400 bg-white'}`}>{lv}</button>
+                              ))}
+                            </div>
+                          </div>
                         )}
-                        <div className="flex gap-2">
-                          <button onClick={()=>setEditItemId(null)} className="flex-1 py-2 bg-slate-100 text-slate-500 rounded-xl font-black text-sm">취소</button>
-                          <button onClick={saveEditItem} className="flex-1 py-2 text-white rounded-xl font-black text-sm shadow-sm" style={{background:'var(--sc)'}}>저장</button>
+
+                        {/* 마감일 (과제만) */}
+                        {editItemData?.category === 'assignment' && (
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">마감일</p>
+                            <input type="date" value={editItemData?.deadline||''} onChange={e=>setEditItemData(p=>({...p,deadline:e.target.value}))}
+                              className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-400 text-slate-800"/>
+                            {editItemData?.deadline && <button onClick={()=>setEditItemData(p=>({...p,deadline:''}))} className="ml-2 text-xs text-red-400 font-black">× 제거</button>}
+                          </div>
+                        )}
+
+                        {/* 암기 영역 (암기만) */}
+                        {editItemData?.category === 'memorization' && memoSections.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">암기 영역</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button onClick={()=>setEditItemData(p=>({...p,memoSection:''}))}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${!editItemData?.memoSection?'bg-purple-600 border-purple-600 text-white':'border-slate-200 text-slate-400 bg-white'}`}>영역 없음</button>
+                              {memoSections.map(sec=>(
+                                <button key={sec} onClick={()=>setEditItemData(p=>({...p,memoSection:sec}))}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.memoSection===sec?'bg-purple-600 border-purple-600 text-white':'border-slate-200 text-slate-400 bg-white'}`}>{sec}</button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 대상 학생 */}
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">대상 학생</p>
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            <button onClick={()=>setEditItemData(p=>({...p,type:'all',targetStudents:[]}))}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.type==='all'?'bg-slate-600 border-slate-600 text-white':'border-slate-200 text-slate-400 bg-white'}`}>전체</button>
+                            <button onClick={()=>setEditItemData(p=>({...p,type:'group',targetStudents:[]}))}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.type==='group'?'bg-amber-500 border-amber-500 text-white':'border-slate-200 text-amber-600 bg-amber-50'}`}>그룹</button>
+                            <button onClick={()=>setEditItemData(p=>({...p,type:'specific',targetStudents:p.targetStudents||[]}))}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${editItemData?.type==='specific'?'bg-blue-500 border-blue-500 text-white':'border-slate-200 text-slate-400 bg-white'}`}>개별</button>
+                          </div>
+                          {editItemData?.type === 'group' && (() => {
+                            const groups = [...new Set(students.map(s=>s.group||'').filter(Boolean))].sort();
+                            return (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {groups.map(g=>{
+                                    const gStudents = students.filter(s=>s.group===g).map(s=>s.id);
+                                    const allSel = gStudents.every(id=>(editItemData?.targetStudents||[]).includes(id));
+                                    return (
+                                      <button key={g} onClick={()=>setEditItemData(p=>({
+                                        ...p,
+                                        targetStudents: allSel
+                                          ? (p.targetStudents||[]).filter(id=>!gStudents.includes(id))
+                                          : [...new Set([...(p.targetStudents||[]),...gStudents])]
+                                      }))} className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${allSel?'bg-amber-500 border-amber-500 text-white':'border-amber-200 text-amber-600 bg-amber-50'}`}>
+                                        그룹 {g} ({gStudents.length}명)
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {(editItemData?.targetStudents||[]).length > 0 && (
+                                  <p className="text-[10px] text-amber-600 font-bold px-2">
+                                    {students.filter(s=>(editItemData?.targetStudents||[]).includes(s.id)).map(s=>s.name).join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {editItemData?.type === 'specific' && (
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {students.map(s=>{
+                                const sel = (editItemData?.targetStudents||[]).includes(s.id);
+                                return (
+                                  <button key={s.id} onClick={()=>setEditItemData(p=>({
+                                    ...p,
+                                    targetStudents: sel
+                                      ? (p.targetStudents||[]).filter(id=>id!==s.id)
+                                      : [...(p.targetStudents||[]),s.id]
+                                  }))} className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 transition ${sel?'text-white border-transparent':'border-slate-200 text-slate-400 bg-white'}`}
+                                  style={sel?{background:'var(--sc)'}:{}}>{s.name}{s.group?<span className="ml-1 text-[9px] opacity-60">({s.group})</span>:null}</button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={()=>setEditItemId(null)} className="flex-1 py-2.5 bg-slate-200 text-slate-500 rounded-xl font-black text-sm">취소</button>
+                          <button onClick={saveEditItem} className="flex-1 py-2.5 text-white rounded-xl font-black text-sm shadow-sm" style={{background:'var(--sc)'}}>저장</button>
                         </div>
                       </div>
                     ) : (
@@ -2675,7 +3045,8 @@ export default function App() {
                               const list = regCategory==='assignment'?assignments:memoItems;
                               const id = (regCategory==='assignment'?'a':'m')+Date.now();
                               const sortOrder = list.length>0?Math.max(...list.map(x=>x.sortOrder||0))+1:0;
-                              await setDoc(doc(db,'artifacts',APP_ID,'public','data',coll,id),{...a,id:undefined,title:a.title+' (복사)',sortOrder,});
+                              const {id:_omit,...rest} = a;
+                              await setDoc(doc(db,'artifacts',APP_ID,'public','data',coll,id),{...rest,title:a.title+' (복사)',sortOrder});
                             }} className="p-2 text-emerald-500 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all" title="복사"><Copy size={15}/></button>
                             <button onClick={()=>{setEditItemId(a.id);setEditItemData({...a});}} className="p-2 text-indigo-500 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all"><Edit2 size={15}/></button>
                             <button onClick={()=>deleteItem(regCategory==='assignment'?'assignments':'memoItems',a.id)} className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-all"><Trash2 size={15}/></button>
